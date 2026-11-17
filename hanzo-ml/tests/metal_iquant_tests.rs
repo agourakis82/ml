@@ -503,7 +503,6 @@ fn check_bf16_half_mm_bounded(dtype: GgmlDType) {
                 0,
                 &dst,
                 true, // src1_bf16
-                true, // src1_half -> kernel_mul_mm_q*_K_bf16_half
             )
             .unwrap();
         }

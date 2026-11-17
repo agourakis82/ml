@@ -375,54 +375,54 @@ pub fn matvec_pq2_0_plane<F: Float>(
     let sg = UNIT_POS_Y as usize;
     let k = meta[0] as usize;
     let nout = meta[1] as usize;
-    let nb = k / 128;
+    let nb = k / 128usize;
     let first_row = (CUBE_POS as usize * nsg + sg) * nr0;
 
-    let ix = lane / 8;
-    let il = lane % 8;
+    let ix = lane / 8usize;
+    let il = lane % 8usize;
 
     let mut sumf = Array::<F>::new(nr0);
     #[unroll]
-    for r in 0..nr0 {
+    for r in 0usize..nr0 {
         sumf[r] = F::new(0.0f32);
     }
 
     if first_row < nout {
         let mut ib = ix;
         while ib < nb {
-            let xb = ib * 128 + il * 16;
-            let mut y = Array::<F>::new(16);
+            let xb = ib * 128usize + il * 16usize;
+            let mut y = Array::<F>::new(16usize);
             #[unroll]
-            for i in 0..16usize {
+            for i in 0usize..16usize {
                 y[i] = x[xb + i];
             }
             #[unroll]
-            for r in 0..nr0 {
+            for r in 0usize..nr0 {
                 let crow = if first_row + r < nout {
                     first_row + r
                 } else {
-                    nout - 1
+                    nout - 1usize
                 };
                 let d = wd[crow * nb + ib];
-                let w32 = wq[crow * (nb * 8) + ib * 8 + il];
+                let w32 = wq[crow * (nb * 8usize) + ib * 8usize + il];
                 let mut acc = F::new(0.0f32);
                 #[unroll]
-                for i in 0..16usize {
-                    let c_bits = ((w32 >> ((2 * i) as u32)) & 3u32) | 0x6400u32;
+                for i in 0usize..16usize {
+                    let c_bits = ((w32 >> ((2 * i) as u32)) & 3u32) | 0x4B00_0000u32;
                     let w_val =
-                        F::cast_from(half::f16::reinterpret(c_bits as u16)) - F::new(1025.0f32);
+                        F::cast_from(f32::reinterpret(c_bits) - 8_388_609.0f32);
                     acc += w_val * y[i];
                 }
                 sumf[r] += d * acc;
             }
-            ib += 4;
+            ib += 4usize;
         }
     }
 
     #[unroll]
-    for r in 0..nr0 {
+    for r in 0usize..nr0 {
         let tot = plane_sum(sumf[r]);
-        if lane == 0 && first_row + r < nout {
+        if lane == 0usize && first_row + r < nout {
             out[first_row + r] = tot;
         }
     }
