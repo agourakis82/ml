@@ -169,28 +169,97 @@ fn metal_specs() -> Vec<Spec<cubecl::wgpu::WgpuRuntime>> {
         ptq1_gemm_spec!("matmul_ptq1_0_gguf_bm32_bf16", "matmul_ptq1_0_gguf_f_",    half::bf16, half::bf16::from_f32, 32),
         ptq1_gemm_spec!("matmul_ptq1_0_gguf_bm64_f32",  "matmul_ptq1_0_gguf_f_f32", f32,        std::convert::identity, 64),
         ptq1_gemm_spec!("matmul_ptq1_0_gguf_bm64_bf16", "matmul_ptq1_0_gguf_f_",    half::bf16, half::bf16::from_f32, 64),
-        // GDN linear-attention ops (zen6 / qwen3_5_moe): conv1d, gating, and lane-split recurrence scan.
+        // GDN linear-attention ops (`F32`, `F16`, `BF16`): conv1d, conv1d_step, gating, scan_lanes.
         Spec {
             artifact: "gdn_conv1d_k4",
             entry: "gdn_conv1d_f_f32",
             launch: |c| {
-                let _ = hanzo_kernel::gdn::gdn_conv1d_run::<R>(c, &vec![0.0; 16], &vec![0.0; 16], 1, 4, 4, 4);
+                let _ = hanzo_kernel::gdn::gdn_conv1d_run_as::<f32, R>(c, &vec![0.0f32; 16], &vec![0.0f32; 16], 1, 4, 4, 4);
+            },
+        },
+        Spec {
+            artifact: "gdn_conv1d_k4_f16",
+            entry: "gdn_conv1d_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::gdn::gdn_conv1d_run_as::<half::f16, R>(c, &vec![half::f16::ZERO; 16], &vec![half::f16::ZERO; 16], 1, 4, 4, 4);
+            },
+        },
+        Spec {
+            artifact: "gdn_conv1d_k4_bf16",
+            entry: "gdn_conv1d_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::gdn::gdn_conv1d_run_as::<half::bf16, R>(c, &vec![half::bf16::ZERO; 16], &vec![half::bf16::ZERO; 16], 1, 4, 4, 4);
+            },
+        },
+        Spec {
+            artifact: "gdn_conv1d_step_k4_f32",
+            entry: "gdn_conv1d_step_f_f32",
+            launch: |c| {
+                let _ = hanzo_kernel::gdn::gdn_conv1d_step_run_as::<f32, R>(c, &vec![0.0f32; 4], &vec![0.0f32; 16], &vec![0.0f32; 16], 1, 4, 4);
+            },
+        },
+        Spec {
+            artifact: "gdn_conv1d_step_k4_f16",
+            entry: "gdn_conv1d_step_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::gdn::gdn_conv1d_step_run_as::<half::f16, R>(c, &vec![half::f16::ZERO; 4], &vec![half::f16::ZERO; 16], &vec![half::f16::ZERO; 16], 1, 4, 4);
+            },
+        },
+        Spec {
+            artifact: "gdn_conv1d_step_k4_bf16",
+            entry: "gdn_conv1d_step_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::gdn::gdn_conv1d_step_run_as::<half::bf16, R>(c, &vec![half::bf16::ZERO; 4], &vec![half::bf16::ZERO; 16], &vec![half::bf16::ZERO; 16], 1, 4, 4);
             },
         },
         Spec {
             artifact: "gdn_gating",
             entry: "gdn_gating_f_f32",
             launch: |c| {
-                let _ = hanzo_kernel::gdn::gdn_gating_run::<R>(c, &vec![0.0; 4], &vec![0.0; 4], &vec![0.0; 4], &vec![0.0; 4], 4);
+                let _ = hanzo_kernel::gdn::gdn_gating_run_as::<f32, R>(c, &vec![0.0f32; 4], &vec![0.0f32; 4], &vec![0.0f32; 4], &vec![0.0f32; 4], 4);
+            },
+        },
+        Spec {
+            artifact: "gdn_gating_f16",
+            entry: "gdn_gating_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::gdn::gdn_gating_run_as::<half::f16, R>(c, &vec![half::f16::ZERO; 4], &vec![half::f16::ZERO; 4], &vec![0.0f32; 4], &vec![0.0f32; 4], 4);
+            },
+        },
+        Spec {
+            artifact: "gdn_gating_bf16",
+            entry: "gdn_gating_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::gdn::gdn_gating_run_as::<half::bf16, R>(c, &vec![half::bf16::ZERO; 4], &vec![half::bf16::ZERO; 4], &vec![0.0f32; 4], &vec![0.0f32; 4], 4);
             },
         },
         Spec {
             artifact: "gdn_scan_lanes_k128_v128_l4",
             entry: "gdn_scan_lanes_f_f32",
             launch: |c| {
-                let _ = hanzo_kernel::gdn::gdn_scan_lanes_run::<R>(
-                    c, &vec![0.0; 128], &vec![0.0; 128], &vec![0.0; 128], &[0.0], &[0.0],
-                    &vec![0.0; 128 * 128], 1, 1, 128, 128, 4, 64, false,
+                let _ = hanzo_kernel::gdn::gdn_scan_lanes_run_as::<f32, R>(
+                    c, &vec![0.0f32; 128], &vec![0.0f32; 128], &vec![0.0f32; 128], &[0.0f32], &[0.0f32],
+                    &vec![0.0f32; 128 * 128], 1, 1, 128, 128, 4, 64, false,
+                );
+            },
+        },
+        Spec {
+            artifact: "gdn_scan_lanes_k128_v128_l4_f16",
+            entry: "gdn_scan_lanes_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::gdn::gdn_scan_lanes_run_as::<half::f16, R>(
+                    c, &vec![half::f16::ZERO; 128], &vec![half::f16::ZERO; 128], &vec![half::f16::ZERO; 128], &[half::f16::ZERO], &[half::f16::ZERO],
+                    &vec![0.0f32; 128 * 128], 1, 1, 128, 128, 4, 64, false,
+                );
+            },
+        },
+        Spec {
+            artifact: "gdn_scan_lanes_k128_v128_l4_bf16",
+            entry: "gdn_scan_lanes_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::gdn::gdn_scan_lanes_run_as::<half::bf16, R>(
+                    c, &vec![half::bf16::ZERO; 128], &vec![half::bf16::ZERO; 128], &vec![half::bf16::ZERO; 128], &[half::bf16::ZERO], &[half::bf16::ZERO],
+                    &vec![0.0f32; 128 * 128], 1, 1, 128, 128, 4, 64, false,
                 );
             },
         },
@@ -198,9 +267,59 @@ fn metal_specs() -> Vec<Spec<cubecl::wgpu::WgpuRuntime>> {
             artifact: "gdn_scan_lanes_k128_v128_l8",
             entry: "gdn_scan_lanes_f_f32",
             launch: |c| {
-                let _ = hanzo_kernel::gdn::gdn_scan_lanes_run::<R>(
-                    c, &vec![0.0; 128], &vec![0.0; 128], &vec![0.0; 128], &[0.0], &[0.0],
-                    &vec![0.0; 128 * 128], 1, 1, 128, 128, 8, 128, false,
+                let _ = hanzo_kernel::gdn::gdn_scan_lanes_run_as::<f32, R>(
+                    c, &vec![0.0f32; 128], &vec![0.0f32; 128], &vec![0.0f32; 128], &[0.0f32], &[0.0f32],
+                    &vec![0.0f32; 128 * 128], 1, 1, 128, 128, 8, 128, false,
+                );
+            },
+        },
+        Spec {
+            artifact: "gdn_scan_lanes_k128_v128_l8_f16",
+            entry: "gdn_scan_lanes_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::gdn::gdn_scan_lanes_run_as::<half::f16, R>(
+                    c, &vec![half::f16::ZERO; 128], &vec![half::f16::ZERO; 128], &vec![half::f16::ZERO; 128], &[half::f16::ZERO], &[half::f16::ZERO],
+                    &vec![0.0f32; 128 * 128], 1, 1, 128, 128, 8, 128, false,
+                );
+            },
+        },
+        Spec {
+            artifact: "gdn_scan_lanes_k128_v128_l8_bf16",
+            entry: "gdn_scan_lanes_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::gdn::gdn_scan_lanes_run_as::<half::bf16, R>(
+                    c, &vec![half::bf16::ZERO; 128], &vec![half::bf16::ZERO; 128], &vec![half::bf16::ZERO; 128], &[half::bf16::ZERO], &[half::bf16::ZERO],
+                    &vec![0.0f32; 128 * 128], 1, 1, 128, 128, 8, 128, false,
+                );
+            },
+        },
+        Spec {
+            artifact: "gdn_scan_lanes_k128_v128_l16_f32",
+            entry: "gdn_scan_lanes_f_f32",
+            launch: |c| {
+                let _ = hanzo_kernel::gdn::gdn_scan_lanes_run_as::<f32, R>(
+                    c, &vec![0.0f32; 128], &vec![0.0f32; 128], &vec![0.0f32; 128], &[0.0f32], &[0.0f32],
+                    &vec![0.0f32; 128 * 128], 1, 1, 128, 128, 16, 128, false,
+                );
+            },
+        },
+        Spec {
+            artifact: "gdn_scan_lanes_k128_v128_l16_f16",
+            entry: "gdn_scan_lanes_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::gdn::gdn_scan_lanes_run_as::<half::f16, R>(
+                    c, &vec![half::f16::ZERO; 128], &vec![half::f16::ZERO; 128], &vec![half::f16::ZERO; 128], &[half::f16::ZERO], &[half::f16::ZERO],
+                    &vec![0.0f32; 128 * 128], 1, 1, 128, 128, 16, 128, false,
+                );
+            },
+        },
+        Spec {
+            artifact: "gdn_scan_lanes_k128_v128_l16_bf16",
+            entry: "gdn_scan_lanes_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::gdn::gdn_scan_lanes_run_as::<half::bf16, R>(
+                    c, &vec![half::bf16::ZERO; 128], &vec![half::bf16::ZERO; 128], &vec![half::bf16::ZERO; 128], &[half::bf16::ZERO], &[half::bf16::ZERO],
+                    &vec![0.0f32; 128 * 128], 1, 1, 128, 128, 16, 128, false,
                 );
             },
         },
@@ -208,9 +327,29 @@ fn metal_specs() -> Vec<Spec<cubecl::wgpu::WgpuRuntime>> {
             artifact: "gdn_scan_lanes_k64_v64_l4",
             entry: "gdn_scan_lanes_f_f32",
             launch: |c| {
-                let _ = hanzo_kernel::gdn::gdn_scan_lanes_run::<R>(
-                    c, &vec![0.0; 64], &vec![0.0; 64], &vec![0.0; 64], &[0.0], &[0.0],
-                    &vec![0.0; 64 * 64], 1, 1, 64, 64, 4, 64, false,
+                let _ = hanzo_kernel::gdn::gdn_scan_lanes_run_as::<f32, R>(
+                    c, &vec![0.0f32; 64], &vec![0.0f32; 64], &vec![0.0f32; 64], &[0.0f32], &[0.0f32],
+                    &vec![0.0f32; 64 * 64], 1, 1, 64, 64, 4, 64, false,
+                );
+            },
+        },
+        Spec {
+            artifact: "gdn_scan_lanes_k64_v64_l4_f16",
+            entry: "gdn_scan_lanes_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::gdn::gdn_scan_lanes_run_as::<half::f16, R>(
+                    c, &vec![half::f16::ZERO; 64], &vec![half::f16::ZERO; 64], &vec![half::f16::ZERO; 64], &[half::f16::ZERO], &[half::f16::ZERO],
+                    &vec![0.0f32; 64 * 64], 1, 1, 64, 64, 4, 64, false,
+                );
+            },
+        },
+        Spec {
+            artifact: "gdn_scan_lanes_k64_v64_l4_bf16",
+            entry: "gdn_scan_lanes_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::gdn::gdn_scan_lanes_run_as::<half::bf16, R>(
+                    c, &vec![half::bf16::ZERO; 64], &vec![half::bf16::ZERO; 64], &vec![half::bf16::ZERO; 64], &[half::bf16::ZERO], &[half::bf16::ZERO],
+                    &vec![0.0f32; 64 * 64], 1, 1, 64, 64, 4, 64, false,
                 );
             },
         },
@@ -219,8 +358,26 @@ fn metal_specs() -> Vec<Spec<cubecl::wgpu::WgpuRuntime>> {
             artifact: "flash_attn_d64_p32",
             entry: "flash_attn_f_f32",
             launch: |c| {
-                let _ = hanzo_kernel::flash::flash_attn_run::<R>(
-                    c, &vec![0.0; 64], &vec![0.0; 64], &vec![0.0; 64], 1, 1, 1, 1, 1, 1, 64, false,
+                let _ = hanzo_kernel::flash::flash_attn_launch_as::<f32, R>(
+                    c, &vec![0.0f32; 64], &vec![0.0f32; 64], &vec![0.0f32; 64], 1, 1, 1, 1, 1, 1, 64, 0, 16, 16, 32, hanzo_kernel::prelude::Target::Metal,
+                );
+            },
+        },
+        Spec {
+            artifact: "flash_attn_d64_p32_f16",
+            entry: "flash_attn_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::flash_attn_launch_as::<half::f16, R>(
+                    c, &vec![half::f16::ZERO; 64], &vec![half::f16::ZERO; 64], &vec![half::f16::ZERO; 64], 1, 1, 1, 1, 1, 1, 64, 0, 16, 16, 32, hanzo_kernel::prelude::Target::Metal,
+                );
+            },
+        },
+        Spec {
+            artifact: "flash_attn_d64_p32_bf16",
+            entry: "flash_attn_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::flash_attn_launch_as::<half::bf16, R>(
+                    c, &vec![half::bf16::ZERO; 64], &vec![half::bf16::ZERO; 64], &vec![half::bf16::ZERO; 64], 1, 1, 1, 1, 1, 1, 64, 0, 16, 16, 32, hanzo_kernel::prelude::Target::Metal,
                 );
             },
         },
@@ -228,8 +385,162 @@ fn metal_specs() -> Vec<Spec<cubecl::wgpu::WgpuRuntime>> {
             artifact: "flash_attn_d128_p32",
             entry: "flash_attn_f_f32",
             launch: |c| {
-                let _ = hanzo_kernel::flash::flash_attn_run::<R>(
-                    c, &vec![0.0; 128], &vec![0.0; 128], &vec![0.0; 128], 1, 1, 1, 1, 1, 1, 128, false,
+                let _ = hanzo_kernel::flash::flash_attn_launch_as::<f32, R>(
+                    c, &vec![0.0f32; 128], &vec![0.0f32; 128], &vec![0.0f32; 128], 1, 1, 1, 1, 1, 1, 128, 0, 16, 16, 32, hanzo_kernel::prelude::Target::Metal,
+                );
+            },
+        },
+        Spec {
+            artifact: "flash_attn_d128_p32_f16",
+            entry: "flash_attn_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::flash_attn_launch_as::<half::f16, R>(
+                    c, &vec![half::f16::ZERO; 128], &vec![half::f16::ZERO; 128], &vec![half::f16::ZERO; 128], 1, 1, 1, 1, 1, 1, 128, 0, 16, 16, 32, hanzo_kernel::prelude::Target::Metal,
+                );
+            },
+        },
+        Spec {
+            artifact: "flash_attn_d128_p32_bf16",
+            entry: "flash_attn_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::flash_attn_launch_as::<half::bf16, R>(
+                    c, &vec![half::bf16::ZERO; 128], &vec![half::bf16::ZERO; 128], &vec![half::bf16::ZERO; 128], 1, 1, 1, 1, 1, 1, 128, 0, 16, 16, 32, hanzo_kernel::prelude::Target::Metal,
+                );
+            },
+        },
+        Spec {
+            artifact: "flash_attn_d256_p32_f32",
+            entry: "flash_attn_f_f32",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::flash_attn_launch_as::<f32, R>(
+                    c, &vec![0.0f32; 256], &vec![0.0f32; 256], &vec![0.0f32; 256], 1, 1, 1, 1, 1, 1, 256, 0, 8, 8, 32, hanzo_kernel::prelude::Target::Metal,
+                );
+            },
+        },
+        Spec {
+            artifact: "flash_attn_d256_p32_f16",
+            entry: "flash_attn_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::flash_attn_launch_as::<half::f16, R>(
+                    c, &vec![half::f16::ZERO; 256], &vec![half::f16::ZERO; 256], &vec![half::f16::ZERO; 256], 1, 1, 1, 1, 1, 1, 256, 0, 8, 8, 32, hanzo_kernel::prelude::Target::Metal,
+                );
+            },
+        },
+        Spec {
+            artifact: "flash_attn_d256_p32_bf16",
+            entry: "flash_attn_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::flash_attn_launch_as::<half::bf16, R>(
+                    c, &vec![half::bf16::ZERO; 256], &vec![half::bf16::ZERO; 256], &vec![half::bf16::ZERO; 256], 1, 1, 1, 1, 1, 1, 256, 0, 8, 8, 32, hanzo_kernel::prelude::Target::Metal,
+                );
+            },
+        },
+        // Paged decode attention + KV block writer (`F32` x=4, `F16`/`BF16` x=8; runtime block_size).
+        Spec {
+            artifact: "paged_attn_d64_x4_f32",
+            entry: "paged_attn_f_f32",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::paged_attn_run_as::<f32, R>(
+                    c, &vec![0.0f32; 64], &vec![0.0f32; 64 * 16], &vec![0.0f32; 64 * 16], &[0], &[1], 1, 1, 1, 64, 16, 4, 1, 0.125, 0.0, 0,
+                );
+            },
+        },
+        Spec {
+            artifact: "paged_attn_d64_x8_f16",
+            entry: "paged_attn_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::paged_attn_run_as::<half::f16, R>(
+                    c, &vec![half::f16::ZERO; 64], &vec![half::f16::ZERO; 64 * 16], &vec![half::f16::ZERO; 64 * 16], &[0], &[1], 1, 1, 1, 64, 16, 8, 1, 0.125, 0.0, 0,
+                );
+            },
+        },
+        Spec {
+            artifact: "paged_attn_d64_x8_bf16",
+            entry: "paged_attn_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::paged_attn_run_as::<half::bf16, R>(
+                    c, &vec![half::bf16::ZERO; 64], &vec![half::bf16::ZERO; 64 * 16], &vec![half::bf16::ZERO; 64 * 16], &[0], &[1], 1, 1, 1, 64, 16, 8, 1, 0.125, 0.0, 0,
+                );
+            },
+        },
+        Spec {
+            artifact: "paged_attn_d128_x4_f32",
+            entry: "paged_attn_f_f32",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::paged_attn_run_as::<f32, R>(
+                    c, &vec![0.0f32; 128], &vec![0.0f32; 128 * 16], &vec![0.0f32; 128 * 16], &[0], &[1], 1, 1, 1, 128, 16, 4, 1, 0.08838835, 0.0, 0,
+                );
+            },
+        },
+        Spec {
+            artifact: "paged_attn_d128_x8_f16",
+            entry: "paged_attn_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::paged_attn_run_as::<half::f16, R>(
+                    c, &vec![half::f16::ZERO; 128], &vec![half::f16::ZERO; 128 * 16], &vec![half::f16::ZERO; 128 * 16], &[0], &[1], 1, 1, 1, 128, 16, 8, 1, 0.08838835, 0.0, 0,
+                );
+            },
+        },
+        Spec {
+            artifact: "paged_attn_d128_x8_bf16",
+            entry: "paged_attn_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::paged_attn_run_as::<half::bf16, R>(
+                    c, &vec![half::bf16::ZERO; 128], &vec![half::bf16::ZERO; 128 * 16], &vec![half::bf16::ZERO; 128 * 16], &[0], &[1], 1, 1, 1, 128, 16, 8, 1, 0.08838835, 0.0, 0,
+                );
+            },
+        },
+        Spec {
+            artifact: "paged_attn_d256_x4_f32",
+            entry: "paged_attn_f_f32",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::paged_attn_run_as::<f32, R>(
+                    c, &vec![0.0f32; 256], &vec![0.0f32; 256 * 16], &vec![0.0f32; 256 * 16], &[0], &[1], 1, 1, 1, 256, 16, 4, 1, 0.0625, 0.0, 0,
+                );
+            },
+        },
+        Spec {
+            artifact: "paged_attn_d256_x8_f16",
+            entry: "paged_attn_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::paged_attn_run_as::<half::f16, R>(
+                    c, &vec![half::f16::ZERO; 256], &vec![half::f16::ZERO; 256 * 16], &vec![half::f16::ZERO; 256 * 16], &[0], &[1], 1, 1, 1, 256, 16, 8, 1, 0.0625, 0.0, 0,
+                );
+            },
+        },
+        Spec {
+            artifact: "paged_attn_d256_x8_bf16",
+            entry: "paged_attn_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::paged_attn_run_as::<half::bf16, R>(
+                    c, &vec![half::bf16::ZERO; 256], &vec![half::bf16::ZERO; 256 * 16], &vec![half::bf16::ZERO; 256 * 16], &[0], &[1], 1, 1, 1, 256, 16, 8, 1, 0.0625, 0.0, 0,
+                );
+            },
+        },
+        Spec {
+            artifact: "reshape_and_cache_x4_f32",
+            entry: "reshape_and_cache_f_f32",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::reshape_and_cache_run_as::<f32, R>(
+                    c, &vec![0.0f32; 64], &vec![0.0f32; 64], &vec![0.0f32; 64 * 16], &vec![0.0f32; 64 * 16], &[0i64], 1, 1, 64, 16, 4,
+                );
+            },
+        },
+        Spec {
+            artifact: "reshape_and_cache_x8_f16",
+            entry: "reshape_and_cache_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::reshape_and_cache_run_as::<half::f16, R>(
+                    c, &vec![half::f16::ZERO; 64], &vec![half::f16::ZERO; 64], &vec![half::f16::ZERO; 64 * 16], &vec![half::f16::ZERO; 64 * 16], &[0i64], 1, 1, 64, 16, 8,
+                );
+            },
+        },
+        Spec {
+            artifact: "reshape_and_cache_x8_bf16",
+            entry: "reshape_and_cache_f_",
+            launch: |c| {
+                let _ = hanzo_kernel::flash::reshape_and_cache_run_as::<half::bf16, R>(
+                    c, &vec![half::bf16::ZERO; 64], &vec![half::bf16::ZERO; 64], &vec![half::bf16::ZERO; 64 * 16], &vec![half::bf16::ZERO; 64 * 16], &[0i64], 1, 1, 64, 16, 8,
                 );
             },
         },

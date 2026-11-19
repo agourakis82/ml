@@ -2553,12 +2553,47 @@ dsl_artifacts! {
     "matmul_ptq1_0_gguf_bm64_f32" => "matmul_ptq1_0_gguf_f_f32",
     "matmul_ptq1_0_gguf_bm64_bf16" => "matmul_ptq1_0_gguf_f_",
     "gdn_conv1d_k4" => "gdn_conv1d_f_f32",
+    "gdn_conv1d_k4_f16" => "gdn_conv1d_f_",
+    "gdn_conv1d_k4_bf16" => "gdn_conv1d_f_",
+    "gdn_conv1d_step_k4_f32" => "gdn_conv1d_step_f_f32",
+    "gdn_conv1d_step_k4_f16" => "gdn_conv1d_step_f_",
+    "gdn_conv1d_step_k4_bf16" => "gdn_conv1d_step_f_",
     "gdn_gating" => "gdn_gating_f_f32",
+    "gdn_gating_f16" => "gdn_gating_f_",
+    "gdn_gating_bf16" => "gdn_gating_f_",
     "gdn_scan_lanes_k128_v128_l4" => "gdn_scan_lanes_f_f32",
+    "gdn_scan_lanes_k128_v128_l4_f16" => "gdn_scan_lanes_f_",
+    "gdn_scan_lanes_k128_v128_l4_bf16" => "gdn_scan_lanes_f_",
     "gdn_scan_lanes_k128_v128_l8" => "gdn_scan_lanes_f_f32",
+    "gdn_scan_lanes_k128_v128_l8_f16" => "gdn_scan_lanes_f_",
+    "gdn_scan_lanes_k128_v128_l8_bf16" => "gdn_scan_lanes_f_",
+    "gdn_scan_lanes_k128_v128_l16_f32" => "gdn_scan_lanes_f_f32",
+    "gdn_scan_lanes_k128_v128_l16_f16" => "gdn_scan_lanes_f_",
+    "gdn_scan_lanes_k128_v128_l16_bf16" => "gdn_scan_lanes_f_",
     "gdn_scan_lanes_k64_v64_l4" => "gdn_scan_lanes_f_f32",
+    "gdn_scan_lanes_k64_v64_l4_f16" => "gdn_scan_lanes_f_",
+    "gdn_scan_lanes_k64_v64_l4_bf16" => "gdn_scan_lanes_f_",
     "flash_attn_d64_p32" => "flash_attn_f_f32",
+    "flash_attn_d64_p32_f16" => "flash_attn_f_",
+    "flash_attn_d64_p32_bf16" => "flash_attn_f_",
     "flash_attn_d128_p32" => "flash_attn_f_f32",
+    "flash_attn_d128_p32_f16" => "flash_attn_f_",
+    "flash_attn_d128_p32_bf16" => "flash_attn_f_",
+    "flash_attn_d256_p32_f32" => "flash_attn_f_f32",
+    "flash_attn_d256_p32_f16" => "flash_attn_f_",
+    "flash_attn_d256_p32_bf16" => "flash_attn_f_",
+    "paged_attn_d64_x4_f32" => "paged_attn_f_f32",
+    "paged_attn_d64_x8_f16" => "paged_attn_f_",
+    "paged_attn_d64_x8_bf16" => "paged_attn_f_",
+    "paged_attn_d128_x4_f32" => "paged_attn_f_f32",
+    "paged_attn_d128_x8_f16" => "paged_attn_f_",
+    "paged_attn_d128_x8_bf16" => "paged_attn_f_",
+    "paged_attn_d256_x4_f32" => "paged_attn_f_f32",
+    "paged_attn_d256_x8_f16" => "paged_attn_f_",
+    "paged_attn_d256_x8_bf16" => "paged_attn_f_",
+    "reshape_and_cache_x4_f32" => "reshape_and_cache_f_f32",
+    "reshape_and_cache_x8_f16" => "reshape_and_cache_f_",
+    "reshape_and_cache_x8_bf16" => "reshape_and_cache_f_",
 }
 
 /// Resource binding kind for DSL kernel dispatch via [`MetalDevice::dispatch_dsl_bindings`].
@@ -2687,7 +2722,7 @@ impl MetalDevice {
     }
 
     /// Dispatch DSL `gdn_conv1d_k4` (causal depthwise conv1d k=4 + SiLU, f32):
-    /// `x: [batch, conv_dim, seq_len]`, `weight: [conv_dim, 4]`, `out: [batch, conv_dim, seq_len]`.
+    /// Dispatch DSL `gdn_conv1d_k4` (f32 convenience wrapper).
     #[allow(clippy::too_many_arguments)]
     pub fn gdn_conv1d_dsl(
         &self,
@@ -2698,9 +2733,30 @@ impl MetalDevice {
         conv_dim: usize,
         seq_len: usize,
     ) -> Result<()> {
+        self.gdn_conv1d_dsl_as(x, weight, out, batch, conv_dim, seq_len, DType::F32)
+    }
+
+    /// Dispatch DSL `gdn_conv1d_k4` for `dtype` in `F32 | F16 | BF16`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn gdn_conv1d_dsl_as(
+        &self,
+        x: (&Buffer, usize),
+        weight: (&Buffer, usize),
+        out: (&Buffer, usize),
+        batch: usize,
+        conv_dim: usize,
+        seq_len: usize,
+        dtype: DType,
+    ) -> Result<()> {
         if batch == 0 || conv_dim == 0 || seq_len == 0 {
             crate::bail!("gdn_conv1d_dsl: empty shape ({batch}, {conv_dim}, {seq_len})");
         }
+        let artifact = match dtype {
+            DType::F32 => "gdn_conv1d_k4",
+            DType::F16 => "gdn_conv1d_k4_f16",
+            DType::BF16 => "gdn_conv1d_k4_bf16",
+            other => crate::bail!("gdn_conv1d_dsl: unsupported dtype {other:?}"),
+        };
         let total = batch * conv_dim * seq_len;
         let dims = [conv_dim as u32, seq_len as u32];
         let static_meta = [
@@ -2714,7 +2770,7 @@ impl MetalDevice {
             2,
         ];
         self.dispatch_dsl_bindings(
-            "gdn_conv1d_k4",
+            artifact,
             &[
                 DslBinding::In(x.0, x.1),
                 DslBinding::In(weight.0, weight.1),
@@ -2735,7 +2791,53 @@ impl MetalDevice {
         )
     }
 
-    /// Dispatch DSL `gdn_gating` (f32): `beta = sigmoid(b)`, `g = -exp(a_log) * softplus(a + dt_bias)`.
+    /// Dispatch DSL `gdn_conv1d_step_k4` (`conv_state` updated in place) for `F32 | F16 | BF16`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn gdn_conv1d_step_dsl(
+        &self,
+        x: (&Buffer, usize),
+        weight: (&Buffer, usize),
+        conv_state: (&Buffer, usize),
+        out: (&Buffer, usize),
+        batch: usize,
+        conv_dim: usize,
+        dtype: DType,
+    ) -> Result<()> {
+        if batch == 0 || conv_dim == 0 {
+            crate::bail!("gdn_conv1d_step_dsl: empty shape ({batch}, {conv_dim})");
+        }
+        let artifact = match dtype {
+            DType::F32 => "gdn_conv1d_step_k4_f32",
+            DType::F16 => "gdn_conv1d_step_k4_f16",
+            DType::BF16 => "gdn_conv1d_step_k4_bf16",
+            other => crate::bail!("gdn_conv1d_step_dsl: unsupported dtype {other:?}"),
+        };
+        let total = batch * conv_dim;
+        let dims = [batch as u32, conv_dim as u32];
+        self.dispatch_dsl_bindings(
+            artifact,
+            &[
+                DslBinding::In(x.0, x.1),
+                DslBinding::In(weight.0, weight.1),
+                DslBinding::Out(conv_state.0, conv_state.1),
+                DslBinding::Out(out.0, out.1),
+                DslBinding::Bytes(slice_as_bytes(&dims)),
+            ],
+            &[0u32; 10],
+            objc2_metal::MTLSize {
+                width: total.div_ceil(64),
+                height: 1,
+                depth: 1,
+            },
+            objc2_metal::MTLSize {
+                width: 64,
+                height: 1,
+                depth: 1,
+            },
+        )
+    }
+
+    /// Dispatch DSL `gdn_gating` (f32 convenience wrapper).
     #[allow(clippy::too_many_arguments)]
     pub fn gdn_gating_dsl(
         &self,
@@ -2748,16 +2850,52 @@ impl MetalDevice {
         batch_tokens: usize,
         num_heads: usize,
     ) -> Result<()> {
+        self.gdn_gating_dsl_as(
+            b_in,
+            a_in,
+            a_log,
+            dt_bias,
+            beta_out,
+            g_out,
+            batch_tokens,
+            num_heads,
+            false,
+            DType::F32,
+        )
+    }
+
+    /// Dispatch DSL `gdn_gating` (`b`/`a`/`beta`/`g` in `F32 | F16 | BF16`, `a_log`/`dt_bias` in `F32`).
+    /// When `precomputed_a` is true, `a_log` already holds `-exp(A_log)` (e.g. GGUF `ssm_a`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn gdn_gating_dsl_as(
+        &self,
+        b_in: (&Buffer, usize),
+        a_in: (&Buffer, usize),
+        a_log: (&Buffer, usize),
+        dt_bias: (&Buffer, usize),
+        beta_out: (&Buffer, usize),
+        g_out: (&Buffer, usize),
+        batch_tokens: usize,
+        num_heads: usize,
+        precomputed_a: bool,
+        dtype: DType,
+    ) -> Result<()> {
         if batch_tokens == 0 || num_heads == 0 {
             crate::bail!("gdn_gating_dsl: empty shape ({batch_tokens}, {num_heads})");
         }
+        let artifact = match dtype {
+            DType::F32 => "gdn_gating",
+            DType::F16 => "gdn_gating_f16",
+            DType::BF16 => "gdn_gating_bf16",
+            other => crate::bail!("gdn_gating_dsl: unsupported dtype {other:?}"),
+        };
         let total = batch_tokens * num_heads;
-        let dims = [num_heads as u32];
+        let dims = [num_heads as u32, u32::from(precomputed_a)];
         let nh = num_heads as u32;
         let tot = total as u32;
-        let static_meta = [tot, tot, nh, nh, tot, tot, 1, tot, tot, nh, nh, tot, tot, 1];
+        let static_meta = [tot, tot, nh, nh, tot, tot, 2, tot, tot, nh, nh, tot, tot, 2];
         self.dispatch_dsl_bindings(
-            "gdn_gating",
+            artifact,
             &[
                 DslBinding::In(b_in.0, b_in.1),
                 DslBinding::In(a_in.0, a_in.1),
@@ -2781,7 +2919,7 @@ impl MetalDevice {
         )
     }
 
-    /// Dispatch DSL `gdn_scan_lanes` (f32, non-transposed `[bh, k_dim, v_dim]` state layout).
+    /// Dispatch DSL `gdn_scan_lanes` (f32 convenience wrapper).
     #[allow(clippy::too_many_arguments)]
     pub fn gdn_scan_lanes_dsl(
         &self,
@@ -2798,15 +2936,59 @@ impl MetalDevice {
         v_dim: usize,
         lanes: usize,
     ) -> Result<()> {
+        self.gdn_scan_lanes_dsl_as(
+            q,
+            k,
+            v,
+            g,
+            beta,
+            state,
+            out,
+            bh,
+            seq,
+            k_dim,
+            v_dim,
+            lanes,
+            DType::F32,
+        )
+    }
+
+    /// Dispatch DSL `gdn_scan_lanes` (`q`/`k`/`v`/`g`/`beta`/`out` in `F32 | F16 | BF16`, `state` in `F32`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn gdn_scan_lanes_dsl_as(
+        &self,
+        q: (&Buffer, usize),
+        k: (&Buffer, usize),
+        v: (&Buffer, usize),
+        g: (&Buffer, usize),
+        beta: (&Buffer, usize),
+        state: (&Buffer, usize),
+        out: (&Buffer, usize),
+        bh: usize,
+        seq: usize,
+        k_dim: usize,
+        v_dim: usize,
+        lanes: usize,
+        dtype: DType,
+    ) -> Result<()> {
         if bh == 0 || seq == 0 {
             crate::bail!("gdn_scan_lanes_dsl: empty shape ({bh}, {seq})");
         }
-        let artifact = match (k_dim, v_dim, lanes) {
-            (128, 128, 4) => "gdn_scan_lanes_k128_v128_l4",
-            (128, 128, 8) => "gdn_scan_lanes_k128_v128_l8",
-            (64, 64, 4) => "gdn_scan_lanes_k64_v64_l4",
+        let artifact = match (k_dim, v_dim, lanes, dtype) {
+            (128, 128, 4, DType::F32) => "gdn_scan_lanes_k128_v128_l4",
+            (128, 128, 4, DType::F16) => "gdn_scan_lanes_k128_v128_l4_f16",
+            (128, 128, 4, DType::BF16) => "gdn_scan_lanes_k128_v128_l4_bf16",
+            (128, 128, 8, DType::F32) => "gdn_scan_lanes_k128_v128_l8",
+            (128, 128, 8, DType::F16) => "gdn_scan_lanes_k128_v128_l8_f16",
+            (128, 128, 8, DType::BF16) => "gdn_scan_lanes_k128_v128_l8_bf16",
+            (128, 128, 16, DType::F32) => "gdn_scan_lanes_k128_v128_l16_f32",
+            (128, 128, 16, DType::F16) => "gdn_scan_lanes_k128_v128_l16_f16",
+            (128, 128, 16, DType::BF16) => "gdn_scan_lanes_k128_v128_l16_bf16",
+            (64, 64, 4, DType::F32) => "gdn_scan_lanes_k64_v64_l4",
+            (64, 64, 4, DType::F16) => "gdn_scan_lanes_k64_v64_l4_f16",
+            (64, 64, 4, DType::BF16) => "gdn_scan_lanes_k64_v64_l4_bf16",
             _ => crate::bail!(
-                "gdn_scan_lanes_dsl: unsupported specialization k={k_dim} v={v_dim} lanes={lanes}"
+                "gdn_scan_lanes_dsl: unsupported specialization k={k_dim} v={v_dim} lanes={lanes} dtype={dtype:?}"
             ),
         };
         let dims = [bh as u32, seq as u32];
@@ -2838,8 +3020,7 @@ impl MetalDevice {
         )
     }
 
-    /// Dispatch DSL `flash_attn` (`simdgroup_matrix` f16 CMMA, f32 I/O, GQA + causal support).
-    /// `kv_strides` is `[stride_b, stride_h, stride_s]` in f32 elements.
+    /// Dispatch DSL `flash_attn` (f32 / boolean causal convenience wrapper).
     #[allow(clippy::too_many_arguments)]
     pub fn flash_attn_dsl(
         &self,
@@ -2858,13 +3039,60 @@ impl MetalDevice {
         kv_strides: [usize; 3],
         q_offset: usize,
     ) -> Result<()> {
+        self.flash_attn_dsl_as(
+            q,
+            k,
+            v,
+            out,
+            batch,
+            n_heads,
+            n_kv,
+            seq_q,
+            seq_k,
+            d,
+            u32::from(causal),
+            scale,
+            kv_strides,
+            q_offset,
+            DType::F32,
+        )
+    }
+
+    /// Dispatch DSL `flash_attn` (`d in {64, 128, 256}`, `dtype in {F32, F16, BF16}`,
+    /// `causal_mode` `0`=none, `1`=top-left, `2`=bottom-right aligned).
+    #[allow(clippy::too_many_arguments)]
+    pub fn flash_attn_dsl_as(
+        &self,
+        q: (&Buffer, usize),
+        k: (&Buffer, usize),
+        v: (&Buffer, usize),
+        out: (&Buffer, usize),
+        batch: usize,
+        n_heads: usize,
+        n_kv: usize,
+        seq_q: usize,
+        seq_k: usize,
+        d: usize,
+        causal_mode: u32,
+        scale: f32,
+        kv_strides: [usize; 3],
+        q_offset: usize,
+        dtype: DType,
+    ) -> Result<()> {
         if batch == 0 || n_heads == 0 || n_kv == 0 || seq_q == 0 || seq_k == 0 {
             crate::bail!("flash_attn_dsl: empty shape");
         }
-        let artifact = match d {
-            64 => "flash_attn_d64_p32",
-            128 => "flash_attn_d128_p32",
-            _ => crate::bail!("flash_attn_dsl: unsupported head_dim={d}"),
+        let (artifact, br) = match (d, dtype) {
+            (64, DType::F32) => ("flash_attn_d64_p32", 16usize),
+            (64, DType::F16) => ("flash_attn_d64_p32_f16", 16),
+            (64, DType::BF16) => ("flash_attn_d64_p32_bf16", 16),
+            (128, DType::F32) => ("flash_attn_d128_p32", 16),
+            (128, DType::F16) => ("flash_attn_d128_p32_f16", 16),
+            (128, DType::BF16) => ("flash_attn_d128_p32_bf16", 16),
+            (256, DType::F32) => ("flash_attn_d256_p32_f32", 8),
+            (256, DType::F16) => ("flash_attn_d256_p32_f16", 8),
+            (256, DType::BF16) => ("flash_attn_d256_p32_bf16", 8),
+            _ => crate::bail!("flash_attn_dsl: unsupported head_dim={d} dtype={dtype:?}"),
         };
         let scale_arr = [scale];
         let meta = [
@@ -2872,13 +3100,13 @@ impl MetalDevice {
             seq_k as u32,
             n_heads as u32,
             n_kv as u32,
-            u32::from(causal),
+            causal_mode,
             kv_strides[0] as u32,
             kv_strides[1] as u32,
             kv_strides[2] as u32,
             q_offset as u32,
         ];
-        let blocks = batch * n_heads * seq_q.div_ceil(16);
+        let blocks = batch * n_heads * seq_q.div_ceil(br);
         self.dispatch_dsl_bindings(
             artifact,
             &[
@@ -2902,10 +3130,191 @@ impl MetalDevice {
             },
         )
     }
+
+    /// Dispatch DSL `paged_attn` over physical KV blocks (`d in {64, 128, 256}`, `F32 | F16 | BF16`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn paged_attn_dsl(
+        &self,
+        q: (&Buffer, usize),
+        key_cache: (&Buffer, usize),
+        value_cache: (&Buffer, usize),
+        block_tables: (&Buffer, usize),
+        context_lens: (&Buffer, usize),
+        out: (&Buffer, usize),
+        num_seqs: usize,
+        num_heads: usize,
+        num_kv_heads: usize,
+        d: usize,
+        block_size: usize,
+        x: usize,
+        max_blocks: usize,
+        scale: f32,
+        softcap: f32,
+        sliding_window: usize,
+        dtype: DType,
+    ) -> Result<()> {
+        if num_seqs == 0 || num_heads == 0 || num_kv_heads == 0 {
+            crate::bail!("paged_attn_dsl: empty shape");
+        }
+        let artifact = match (d, x, dtype) {
+            (64, 4, DType::F32) => "paged_attn_d64_x4_f32",
+            (64, 8, DType::F16) => "paged_attn_d64_x8_f16",
+            (64, 8, DType::BF16) => "paged_attn_d64_x8_bf16",
+            (128, 4, DType::F32) => "paged_attn_d128_x4_f32",
+            (128, 8, DType::F16) => "paged_attn_d128_x8_f16",
+            (128, 8, DType::BF16) => "paged_attn_d128_x8_bf16",
+            (256, 4, DType::F32) => "paged_attn_d256_x4_f32",
+            (256, 8, DType::F16) => "paged_attn_d256_x8_f16",
+            (256, 8, DType::BF16) => "paged_attn_d256_x8_bf16",
+            _ => crate::bail!(
+                "paged_attn_dsl: unsupported specialization d={d} x={x} dtype={dtype:?}"
+            ),
+        };
+        let scale_cfg = [scale, softcap];
+        let meta = [
+            num_heads as u32,
+            num_kv_heads as u32,
+            max_blocks as u32,
+            sliding_window as u32,
+            block_size as u32,
+        ];
+        self.dispatch_dsl_bindings(
+            artifact,
+            &[
+                DslBinding::In(q.0, q.1),
+                DslBinding::In(key_cache.0, key_cache.1),
+                DslBinding::In(value_cache.0, value_cache.1),
+                DslBinding::In(block_tables.0, block_tables.1),
+                DslBinding::In(context_lens.0, context_lens.1),
+                DslBinding::Out(out.0, out.1),
+                DslBinding::Bytes(slice_as_bytes(&scale_cfg)),
+                DslBinding::Bytes(slice_as_bytes(&meta)),
+            ],
+            &[0u32; 16],
+            objc2_metal::MTLSize {
+                width: num_seqs * num_heads,
+                height: 1,
+                depth: 1,
+            },
+            objc2_metal::MTLSize {
+                width: 4 * 32,
+                height: 1,
+                depth: 1,
+            },
+        )
+    }
+
+    /// Dispatch DSL `reshape_and_cache` (`slot_mapping` in `I64`, `key_cache`/`value_cache` updated in place).
+    #[allow(clippy::too_many_arguments)]
+    pub fn reshape_and_cache_dsl(
+        &self,
+        key: (&Buffer, usize),
+        value: (&Buffer, usize),
+        key_cache: (&Buffer, usize),
+        value_cache: (&Buffer, usize),
+        slot_mapping: (&Buffer, usize),
+        num_tokens: usize,
+        num_kv_heads: usize,
+        d: usize,
+        block_size: usize,
+        x: usize,
+        dtype: DType,
+    ) -> Result<()> {
+        if num_tokens == 0 || num_kv_heads == 0 || d == 0 {
+            return Ok(());
+        }
+        let artifact = match (x, dtype) {
+            (4, DType::F32) => "reshape_and_cache_x4_f32",
+            (8, DType::F16) => "reshape_and_cache_x8_f16",
+            (8, DType::BF16) => "reshape_and_cache_x8_bf16",
+            _ => crate::bail!("reshape_and_cache_dsl: unsupported x={x} dtype={dtype:?}"),
+        };
+        let dims = [
+            num_tokens as u32,
+            num_kv_heads as u32,
+            d as u32,
+            block_size as u32,
+        ];
+        let total = num_tokens * num_kv_heads * d;
+        self.dispatch_dsl_bindings(
+            artifact,
+            &[
+                DslBinding::In(key.0, key.1),
+                DslBinding::In(value.0, value.1),
+                DslBinding::Out(key_cache.0, key_cache.1),
+                DslBinding::Out(value_cache.0, value_cache.1),
+                DslBinding::In(slot_mapping.0, slot_mapping.1),
+                DslBinding::Bytes(slice_as_bytes(&dims)),
+            ],
+            &[0u32; 12],
+            objc2_metal::MTLSize {
+                width: total.div_ceil(64),
+                height: 1,
+                depth: 1,
+            },
+            objc2_metal::MTLSize {
+                width: 64,
+                height: 1,
+                depth: 1,
+            },
+        )
+    }
 }
 
 fn slice_as_bytes<T>(s: &[T]) -> &[u8] {
     unsafe { std::slice::from_raw_parts(s.as_ptr().cast(), std::mem::size_of_val(s)) }
+}
+
+/// Extract the underlying Metal buffer and byte start offset of `t`.
+pub(crate) fn metal_tensor_buf(t: &crate::Tensor) -> Result<(hanzo_metal_kernels::metal::Buffer, usize)> {
+    let (storage, layout) = t.storage_and_layout();
+    match &*storage {
+        crate::Storage::Metal(ms) => {
+            let off = layout.start_offset() * ms.dtype().size_in_bytes();
+            Ok((ms.buffer().clone(), off))
+        }
+        _ => crate::bail!("expected Metal tensor"),
+    }
+}
+
+/// Allocate an uninitialized contiguous Metal tensor of `shape` and `dtype`.
+pub(crate) fn metal_uninit_tensor(
+    dev: &MetalDevice,
+    shape: impl Into<crate::Shape>,
+    dtype: DType,
+) -> Result<crate::Tensor> {
+    let shape = shape.into();
+    let storage = unsafe { <MetalDevice as crate::backend::BackendDevice>::alloc_uninit(dev, &shape, dtype)? };
+    Ok(crate::tensor::from_storage(
+        crate::Storage::Metal(storage),
+        shape,
+        crate::op::BackpropOp::none(),
+        false,
+    ))
+}
+
+/// Allocate a fresh, unaliased contiguous copy of `t` on its Metal device (handles nonzero
+/// `start_offset()`, strided views, and preserves snapshot isolation for in-place kernels).
+pub(crate) fn metal_fresh_copy(t: &crate::Tensor, dtype: DType) -> Result<crate::Tensor> {
+    let src = if t.dtype() != dtype {
+        t.to_dtype(dtype)?
+    } else {
+        t.clone()
+    };
+    let (storage, layout) = src.storage_and_layout();
+    let crate::Storage::Metal(src_ms) = &*storage else {
+        crate::bail!("expected Metal tensor");
+    };
+    let dev = src_ms.device().clone();
+    let mut dst_ms = unsafe { <MetalDevice as crate::backend::BackendDevice>::alloc_uninit(&dev, src.shape(), dtype)? };
+    <MetalStorage as crate::backend::BackendStorage>::copy_strided_src(src_ms, &mut dst_ms, 0, layout)?;
+    drop(storage);
+    Ok(crate::tensor::from_storage(
+        crate::Storage::Metal(dst_ms),
+        src.shape().clone(),
+        crate::op::BackpropOp::none(),
+        false,
+    ))
 }
 
 #[cfg(test)]
