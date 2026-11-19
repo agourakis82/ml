@@ -469,17 +469,21 @@ impl QMetalStorage {
                 },
             )
         };
-        let meta = device.dsl_const_u32(&meta_words)?;
+        let meta_bytes = unsafe {
+            std::slice::from_raw_parts(
+                meta_words.as_ptr().cast::<u8>(),
+                std::mem::size_of_val(&meta_words),
+            )
+        };
         let x_off = layout.start_offset() * storage.dtype().size_in_bytes();
-        device.dispatch_dsl(
+        device.dispatch_dsl_bindings(
             artifact,
             &[
-                (&self.buffer, 0),
-                (storage.buffer(), x_off),
-                (dst, 0),
-                (&meta, 0),
+                crate::metal_backend::DslBinding::In(&self.buffer, 0),
+                crate::metal_backend::DslBinding::In(storage.buffer(), x_off),
+                crate::metal_backend::DslBinding::Out(dst, 0),
+                crate::metal_backend::DslBinding::Bytes(meta_bytes),
             ],
-            2,
             &[0u32; 8],
             grid,
             block,

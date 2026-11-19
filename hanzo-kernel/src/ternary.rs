@@ -1503,21 +1503,25 @@ fn ptq1_trit(b: u32, pow3: u32) -> f32 {
     f32::reinterpret(t | 0x4B00_0000u32) - 8_388_609.0f32
 }
 
-/// Dot product of the 5 packed trits in byte `b` against activations `(y0, y1, y2, y3, y4)`.
+/// Dot product of the 5 packed trits in byte `b` (`0..=255`) using base-3 collapse against
+/// precomputed activation differences `c0 = y0 - 3*y1`, ..., `c3 = y3 - 3*y4`, `c4 = y4`.
+/// Exact in fp32 since `1/256 = 2^-8` and `243 * 255 = 61,965 < 2^24`; caller subtracts `sumy`.
 #[device]
 #[inline]
-fn ptq1_dot_5(b: u32, y0: f32, y1: f32, y2: f32, y3: f32, y4: f32) -> f32 {
-    ptq1_trit(b, 1u32) * y0
-        + ptq1_trit(b, 3u32) * y1
-        + ptq1_trit(b, 9u32) * y2
-        + ptq1_trit(b, 27u32) * y3
-        + ptq1_trit(b, 81u32) * y4
+#[allow(clippy::too_many_arguments)]
+fn ptq1_dot_5_collapse(b: u32, c0: f32, c1: f32, c2: f32, c3: f32, c4: f32) -> f32 {
+    let u = f32::cast_from(b) * (1.0f32 / 256.0f32);
+    f32::floor(3.0f32 * u) * c0
+        + f32::floor(9.0f32 * u) * c1
+        + f32::floor(27.0f32 * u) * c2
+        + f32::floor(81.0f32 * u) * c3
+        + f32::floor(243.0f32 * u) * c4
 }
 
 /// PTQ1_0 decode matvec over native GGUF `block_ptq1_0` (`28 B = 7 u32` words): `out[r] = Σ_j d·t·x[j]`.
 ///
-/// Zero word-straddling (`7 * g` aligned `u32` words) and exact integer trit extraction (`zero floor`
-/// or `3x/243x` cancellation), reusing `y[16]` across `NR0` output rows per plane.
+/// Zero word-straddling (`7 * g` aligned `u32` words), base-3 collapse (`floor(3^k * b / 256)`) with
+/// precomputed activation differences and `sumy` shared across `NR0` output rows per plane.
 ///
 /// Launch: `Block::new_2d(32, nsg)`, `Grid::Static(rows.div_ceil(nsg*nr0), 1, 1)`,
 /// `meta = [k, rows, nwords]` with `nwords = 7 * rows * (k / 128)`.
@@ -1529,7 +1533,7 @@ pub fn matvec_ptq1_0_gguf<F: Float>(
     meta: &Array<u32>,
     #[comptime] nsg: usize,
     #[comptime] nr0: usize,
-    #[comptime] tgt: Target,
+    #[comptime] _tgt: Target,
 ) {
     let lane = UNIT_POS_X as usize;
     let sg = UNIT_POS_Y as usize;
@@ -1540,32 +1544,44 @@ pub fn matvec_ptq1_0_gguf<F: Float>(
     let ix = lane / 8usize;
     let it = lane % 8usize;
     let qh_shift = it / 2usize;
-    let mut qh_pow3 = 1u32;
+    let mut qh_p = 1.0f32;
     if qh_shift == 1usize {
-        qh_pow3 = 3u32;
+        qh_p = 3.0f32;
     } else if qh_shift == 2usize {
-        qh_pow3 = 9u32;
+        qh_p = 9.0f32;
     } else if qh_shift == 3usize {
-        qh_pow3 = 27u32;
+        qh_p = 27.0f32;
     }
 
+    let qh_p3 = 3.0f32 * qh_p;
+    let inv256 = 1.0f32 / 256.0f32;
+
     let mut sumf = Array::<f32>::new(nr0);
-    let mut crows = Array::<usize>::new(nr0);
     #[unroll]
     for r in 0usize..nr0 {
         sumf[r] = 0.0f32;
-        let mut row = first_row + r;
-        if row >= nout {
-            row = nout - 1usize;
-        }
-        crows[r] = row;
     }
+    let row_stride = 7usize * nb;
+    let mut max_r = 0usize;
+    if first_row < nout {
+        max_r = nout - 1usize - first_row;
+    }
+    let max_off = max_r * row_stride;
+    let base0 = 7usize * (first_row * nb + ix);
+
+    let m0 = 2usize * it;
+    let w01_off = it / 2usize;
+    let w01_sh0 = (16usize * (it % 2usize)) as u32;
+    let w01_sh1 = w01_sh0 + 8u32;
+    let wmid_off = 4usize + it / 4usize;
+    let wmid_sh = (8usize * (it % 4usize)) as u32;
+    let bh_sh = (8usize * (it % 2usize)) as u32;
 
     if first_row < nout {
         let mut ib = ix;
+        let mut yb = ix * 128usize;
+        let mut cur0 = base0;
         while ib < nb {
-            let yb = ib * 128usize;
-            let m0 = 2usize * it;
             let y00 = f32::cast_from(x[yb + m0]);
             let y01 = f32::cast_from(x[yb + 16usize + m0]);
             let y02 = f32::cast_from(x[yb + 32usize + m0]);
@@ -1583,17 +1599,37 @@ pub fn matvec_ptq1_0_gguf<F: Float>(
             let y24 = f32::cast_from(x[yb + 112usize + it]);
             let yt = f32::cast_from(x[yb + 120usize + it]);
 
+            let sumy = (y00 + y01 + y02 + y03 + y04)
+                + (y10 + y11 + y12 + y13 + y14)
+                + (y20 + y21 + y22 + y23 + y24)
+                + yt;
+            let c00 = y00 - 3.0f32 * y01;
+            let c01 = y01 - 3.0f32 * y02;
+            let c02 = y02 - 3.0f32 * y03;
+            let c03 = y03 - 3.0f32 * y04;
+            let c10 = y10 - 3.0f32 * y11;
+            let c11 = y11 - 3.0f32 * y12;
+            let c12 = y12 - 3.0f32 * y13;
+            let c13 = y13 - 3.0f32 * y14;
+            let c20 = y20 - 3.0f32 * y21;
+            let c21 = y21 - 3.0f32 * y22;
+            let c22 = y22 - 3.0f32 * y23;
+            let c23 = y23 - 3.0f32 * y24;
+
             #[unroll]
             for r in 0usize..nr0 {
-                let base = 7usize * (crows[r] * nb + ib);
-                let w_01 = wq[base + it / 2usize];
-                let p_sh = 16usize * (it % 2usize);
-                let b0 = (w_01 >> (p_sh as u32)) & 0xFFu32;
-                let b1 = (w_01 >> ((p_sh + 8usize) as u32)) & 0xFFu32;
-                let w_mid = wq[base + 4usize + it / 4usize];
-                let b2 = (w_mid >> ((8usize * (it % 4usize)) as u32)) & 0xFFu32;
+                let mut r_off = r * row_stride;
+                if r > max_r {
+                    r_off = max_off;
+                }
+                let base = cur0 + r_off;
+                let w_01 = wq[base + w01_off];
+                let b0 = (w_01 >> w01_sh0) & 0xFFu32;
+                let b1 = (w_01 >> w01_sh1) & 0xFFu32;
+                let w_mid = wq[base + wmid_off];
+                let b2 = (w_mid >> wmid_sh) & 0xFFu32;
                 let w_tail = wq[base + 6usize];
-                let bh = (w_tail >> ((8usize * (it % 2usize)) as u32)) & 0xFFu32;
+                let bh = (w_tail >> bh_sh) & 0xFFu32;
                 let sbits = (w_tail >> 16u32) & 0xFFFFu32;
                 let d = island! {
                     metal | cuda | rocm => {
@@ -1601,13 +1637,17 @@ pub fn matvec_ptq1_0_gguf<F: Float>(
                     }
                     default => { crate::quant::f16lo_to_f32(sbits) }
                 };
-                let acc = ptq1_dot_5(b0, y00, y01, y02, y03, y04)
-                    + ptq1_dot_5(b1, y10, y11, y12, y13, y14)
-                    + ptq1_dot_5(b2, y20, y21, y22, y23, y24)
-                    + ptq1_trit(bh, qh_pow3) * yt;
-                sumf[r] += d * acc;
+                let uq = f32::cast_from(bh) * inv256;
+                let qh_digit = f32::floor(qh_p3 * uq) - 3.0f32 * f32::floor(qh_p * uq);
+                let acc = ptq1_dot_5_collapse(b0, c00, c01, c02, c03, y04)
+                    + ptq1_dot_5_collapse(b1, c10, c11, c12, c13, y14)
+                    + ptq1_dot_5_collapse(b2, c20, c21, c22, c23, y24)
+                    + qh_digit * yt;
+                sumf[r] += d * (acc - sumy);
             }
             ib += 4usize;
+            yb += 512usize;
+            cur0 += 28usize;
         }
     }
 

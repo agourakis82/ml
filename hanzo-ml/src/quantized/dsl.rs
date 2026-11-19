@@ -170,9 +170,23 @@ pub fn pq2_matvec_artifact(rows: usize, bf16: bool) -> (&'static str, usize, usi
     (a, nsg, nr0)
 }
 
+pub fn ptq1_schedule(rows: usize) -> (usize, usize) {
+    if rows <= 2048 {
+        (2, 2)
+    } else {
+        (2, 4)
+    }
+}
+
 /// The generated artifact (= pipeline identity) for a PTQ1_0 decode matvec, with its schedule.
 pub fn ptq1_matvec_artifact(rows: usize, bf16: bool) -> (&'static str, usize, usize) {
-    let (nsg, nr0) = ternary_matvec_schedule(rows);
+    let (mut nsg, mut nr0) = ptq1_schedule(rows);
+    if let Some(forced) = nsg_override() {
+        nsg = forced;
+    }
+    if let Some(forced) = nr0_override() {
+        nr0 = forced;
+    }
     let a = match (nsg, nr0, bf16) {
         (2, 2, false) => "matvec_ptq1_0_gguf_nsg2_nr2_f32",
         (2, 4, false) => "matvec_ptq1_0_gguf_nsg2_nr4_f32",
