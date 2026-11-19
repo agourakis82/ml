@@ -1568,6 +1568,15 @@ pub fn matvec_ptq1_0_gguf<F: Float>(
     }
     let max_off = max_r * row_stride;
     let base0 = 7usize * (first_row * nb + ix);
+    let mut row_off = Array::<usize>::new(nr0);
+    #[unroll]
+    for r in 0usize..nr0 {
+        let mut ro = r * row_stride;
+        if r > max_r {
+            ro = max_off;
+        }
+        row_off[r] = ro;
+    }
 
     let m0 = 2usize * it;
     let w01_off = it / 2usize;
@@ -1618,11 +1627,7 @@ pub fn matvec_ptq1_0_gguf<F: Float>(
 
             #[unroll]
             for r in 0usize..nr0 {
-                let mut r_off = r * row_stride;
-                if r > max_r {
-                    r_off = max_off;
-                }
-                let base = cur0 + r_off;
+                let base = cur0 + row_off[r];
                 let w_01 = wq[base + w01_off];
                 let b0 = (w_01 >> w01_sh0) & 0xFFu32;
                 let b1 = (w_01 >> w01_sh1) & 0xFFu32;
@@ -1630,12 +1635,12 @@ pub fn matvec_ptq1_0_gguf<F: Float>(
                 let b2 = (w_mid >> wmid_sh) & 0xFFu32;
                 let w_tail = wq[base + 6usize];
                 let bh = (w_tail >> bh_sh) & 0xFFu32;
-                let sbits = (w_tail >> 16u32) & 0xFFFFu32;
+                let sbits_hi = w_tail >> 16u32;
                 let d = island! {
                     metal | cuda | rocm => {
-                        f32::cast_from(Vector::<half::f16, Const<2>>::reinterpret::<u32>(sbits)[0])
+                        f32::cast_from(Vector::<half::f16, Const<2>>::reinterpret::<u32>(sbits_hi)[0])
                     }
-                    default => { crate::quant::f16lo_to_f32(sbits) }
+                    default => { crate::quant::f16lo_to_f32(sbits_hi & 0xFFFFu32) }
                 };
                 let uq = f32::cast_from(bh) * inv256;
                 let qh_digit = f32::floor(qh_p3 * uq) - 3.0f32 * f32::floor(qh_p * uq);
